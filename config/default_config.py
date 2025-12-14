@@ -1,5 +1,3 @@
-# config/default_config.py
-
 import os
 
 # --- Project Paths ---

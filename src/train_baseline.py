@@ -42,9 +42,54 @@ def train_baseline_model():
     
     
     print("\n--- 2. Loading Model ---")
-    # The NLI task is 3-class classification
-    model = AutoModelForSequenceClassification.from_pretrained(MODEL_NAME, num_labels=3)
-    
+    model, loading_info = AutoModelForSequenceClassification.from_pretrained(
+        MODEL_NAME, num_labels=3, output_loading_info=True
+    )
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+    # Prefer dedicated GPU if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    print(f"Using device: {device}")
+
+    # Verify loaded weights
+    print("Loading info:")
+    print(f"- missing_keys: {loading_info.get('missing_keys', [])}")        # should be classifier.* only
+    print(f"- unexpected_keys: {loading_info.get('unexpected_keys', [])}")  # should be empty
+    print(f"- error_msgs: {loading_info.get('error_msgs', [])}")            # should be empty
+
+    # Diagnostics: confirm weights and shapes
+    print(f"Model loaded: {model.config.name_or_path}, num_labels={model.config.num_labels}")
+    print(f"Tokenizer vocab size: {tokenizer.vocab_size}")
+    # Embedding matrix should match vocab size
+    emb_shape = tuple(model.base_model.embeddings.word_embeddings.weight.shape)
+    print(f"Embedding weight shape: {emb_shape}")
+
+    # List classifier params (expected to be newly initialized)
+    head_params = [n for n, _ in model.named_parameters() if n.startswith(("classifier.", "score."))]
+    print(f"Classification head params: {head_params}")
+
+    # Quick sanity stats for encoder weights (should be non-zero and finite)
+    with torch.no_grad():
+        enc_w = model.base_model.encoder.layer[0].output.dense.weight
+        print(f"Encoder L0 output.dense.weight: mean={enc_w.mean().item():.6f}, std={enc_w.std().item():.6f}")
+        cls_w = None
+        for n, p in model.named_parameters():
+            if n.endswith("classifier.out_proj.weight") or n.endswith("classifier.weight"):
+                cls_w = p
+                break
+        if cls_w is not None:
+            print(f"Classifier weight: mean={cls_w.mean().item():.6f}, std={cls_w.std().item():.6f}")
+
+    # Ensure the presence of expected new classifier parameters
+    expected_new = {"classifier.dense.weight", "classifier.dense.bias", "classifier.out_proj.weight", "classifier.out_proj.bias"}
+    present_new = set(p for p in head_params)
+    assert present_new, "No classifier head params found."
+    # If you want to be strict, ensure no other unexpected head prefixes appear:
+    unexpected = [n for n in head_params if n not in expected_new]
+    if unexpected:
+        print(f"Warning: unexpected classifier params: {unexpected}")
+
     # Define the output directory for checkpoints
     output_dir = os.path.join(MODEL_DIR, f"{MODEL_NAME}_baseline_{TRAIN_DATASET}")
 
@@ -61,6 +106,9 @@ def train_baseline_model():
         "learning_rate": LEARNING_RATE,
         "seed": SEED,
         "fp16": torch.cuda.is_available(),
+        # Speed-ups on GPU; on CPU they are safe but not critical
+        "dataloader_num_workers": 4,
+        "pin_memory": torch.cuda.is_available(),
     }
 
     # Try to add strategy flags, then filter by actual __init__ signature to avoid unsupported args
@@ -84,7 +132,7 @@ def train_baseline_model():
     training_args = TrainingArguments(**_filtered)
 
     # Prepare tokenizer and data collator for dynamic padding
-    _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    _tokenizer = tokenizer  # reuse loaded tokenizer
     _data_collator = DataCollatorWithPadding(tokenizer=_tokenizer)
 
     # Initialize the Trainer

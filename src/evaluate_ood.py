@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer, DataCollatorWithPadding
 from config.default_config import (
     MODEL_NAME, 
     TRAIN_DATASET, 
@@ -30,21 +30,31 @@ def evaluate_cross_domain():
     
     # Load model and tokenizer
     model = AutoModelForSequenceClassification.from_pretrained(baseline_model_path)
-    _ = AutoTokenizer.from_pretrained(MODEL_NAME) 
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     # 2. Setup Trainer for Evaluation
     from transformers import TrainingArguments
-    eval_args = TrainingArguments(
-        output_dir="./tmp_eval",
-        per_device_eval_batch_size=BATCH_SIZE,
-        do_train=False,
-        do_eval=True,
-    )
-    
+    # Build args with conservative, widely-supported keys
+    eval_kwargs = {
+        "output_dir": "./tmp_eval",
+        "per_device_eval_batch_size": BATCH_SIZE,
+        "do_train": False,
+        "do_eval": True,
+        "dataloader_num_workers": 4,  # if your version complains, set to 0 or remove
+    }
+
+    # Create TrainingArguments
+    eval_args = TrainingArguments(**eval_kwargs)
+
+    # Use dynamic padding so variable-length input_ids/attention_mask work
+    data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
+
     trainer = Trainer(
         model=model,
         args=eval_args,
         compute_metrics=compute_metrics,
+        data_collator=data_collator,
+        tokenizer=tokenizer,
     )
 
     # 3. Perform Evaluation and Record Results
