@@ -28,25 +28,22 @@ def evaluate_cross_domain():
 
     print(f"--- 1. Loading Trained Baseline Model from: {baseline_model_path} ---")
     
-    # Load model and tokenizer
+    # Load model and tokenizer from the same checkpoint
     model = AutoModelForSequenceClassification.from_pretrained(baseline_model_path)
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(baseline_model_path)
 
     # 2. Setup Trainer for Evaluation
     from transformers import TrainingArguments
-    # Build args with conservative, widely-supported keys
+    # Conservative, version-safe args
     eval_kwargs = {
         "output_dir": "./tmp_eval",
         "per_device_eval_batch_size": BATCH_SIZE,
         "do_train": False,
         "do_eval": True,
-        "dataloader_num_workers": 4,  # if your version complains, set to 0 or remove
+        "dataloader_num_workers": 0,
     }
-
-    # Create TrainingArguments
     eval_args = TrainingArguments(**eval_kwargs)
 
-    # Use dynamic padding so variable-length input_ids/attention_mask work
     data_collator = DataCollatorWithPadding(tokenizer=tokenizer)
 
     trainer = Trainer(
@@ -60,15 +57,20 @@ def evaluate_cross_domain():
     # 3. Perform Evaluation and Record Results
     results = []
     
-    # Start with the in-domain test set for the generalization gap calculation
     datasets_to_evaluate = {
         f"{TRAIN_DATASET}_matched": load_and_preprocess_dataset(TRAIN_DATASET, split="validation_matched"),
         f"{TRAIN_DATASET}_mismatched": load_and_preprocess_dataset(TRAIN_DATASET, split="validation_mismatched"),
     }
     
-    # Add OOD datasets
-    for ood_name in OOD_DATASETS:
-        datasets_to_evaluate[ood_name] = load_and_preprocess_dataset(ood_name, split="test")
+    # Add OOD datasets (support dict specs from config)
+    for spec in OOD_DATASETS:
+        if isinstance(spec, dict):
+            ds = load_and_preprocess_dataset(spec["name"], split=spec.get("split", "test"))
+            name = spec["name"]
+        else:
+            ds = load_and_preprocess_dataset(spec, split="test")
+            name = spec
+        datasets_to_evaluate[name] = ds
 
     for name, dataset in datasets_to_evaluate.items():
         if dataset is None:

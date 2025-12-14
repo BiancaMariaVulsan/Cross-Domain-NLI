@@ -1,13 +1,33 @@
+import os
 from datasets import load_dataset
 from transformers import AutoTokenizer
 import evaluate
 from config.default_config import MODEL_NAME, MAX_SEQ_LENGTH, LABEL_MAPPING
 
-# Load the tokenizer based on the chosen model name
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+HF_HOME = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".hf_cache")
+os.environ.setdefault("HF_HOME", HF_HOME)
+os.environ.setdefault("HF_DATASETS_CACHE", os.path.join(HF_HOME, "datasets"))
+
+# Load tokenizer once
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-# Load the evaluation metrics
 accuracy_metric = evaluate.load("accuracy")
 f1_metric = evaluate.load("f1")
+
+
+def _normalize_columns(ds):
+    cols = set(ds.column_names)
+    # Standardize to premise/hypothesis/label
+    if "sentence1" in cols and "sentence2" in cols:
+        ds = ds.rename_columns({"sentence1": "premise", "sentence2": "hypothesis"})
+    if "premise" not in ds.column_names and "question1" in cols:
+        ds = ds.rename_column("question1", "premise")
+    if "hypothesis" not in ds.column_names and "question2" in cols:
+        ds = ds.rename_column("question2", "hypothesis")
+    # Label column variants
+    if "gold_label" in cols and "label" not in cols:
+        ds = ds.rename_column("gold_label", "label")
+    return ds
 
 
 def preprocess_function(examples):
@@ -20,6 +40,7 @@ def preprocess_function(examples):
         examples["hypothesis"],
         truncation=True,
         max_length=MAX_SEQ_LENGTH,
+        # Padding deferred to DataCollatorWithPadding
     )
 
     # Convert original labels (string or integer) to standardized integer IDs
@@ -30,7 +51,7 @@ def preprocess_function(examples):
             labels.append(LABEL_MAPPING.get(label.lower(), -1))
         elif isinstance(label, int):
             # Directly use integer labels if they match the 0, 1, 2 convention
-            labels.append(label)
+            labels.append(label if label in (0, 1, 2) else -1)
         else:
             # Handle cases where label is unknown/missing (e.g., -1 in MultiNLI mismatch)
             labels.append(LABEL_MAPPING.get(str(label), -1))
@@ -41,46 +62,77 @@ def preprocess_function(examples):
 
 def load_and_preprocess_dataset(dataset_name, split="train"):
     """
-    Loads a dataset from the Hugging Face Hub, preprocesses it, and removes unnecessary columns.
+    Loads a dataset by name/split, normalizes columns, tokenizes, and returns torch-formatted features.
     """
+    # Map friendly names
+    hub_name = dataset_name
+    hf_split = split
+    if isinstance(dataset_name, dict):
+        hub_name = dataset_name.get("name", dataset_name)
+        hf_split = dataset_name.get("split", split)
+    # Canonicalize mednli naming
+    if isinstance(hub_name, str) and hub_name.lower() in ["medical_nli", "mednli"]:
+        hub_name = "mednli"
+        # Default to r3 if generic split provided
+        if split == "train": hf_split = "train_r3"
+        elif split in ["validation", "dev"]: hf_split = "dev_r3"
+        elif split == "test": hf_split = "test_r3"
+
     try:
-        if dataset_name == "medical_nli":
-            # MedNLI is hosted as 'anli' with a specific sub-split structure
-            dataset = load_dataset("anli", split=split)
-            # Filter for the specific MedNLI subset if needed, or adjust based on dataset source
-            # For simplicity, we assume 'medical_nli' source for now (might require manual download)
-            
-            # NOTE: For MedNLI, you may need to use 'csv' or 'json' loading if it's not on the HF Hub.
-            # E.g., load_dataset("csv", data_files={"train": "MedNLI_train.csv"})
-            
-            # --- Using a common NLI format as a placeholder for MedNLI ---
-            # If the user provides the raw MedNLI files, this part needs adjustment.
-            # Assuming a standard HF format for the moment:
-            dataset = load_dataset('glue', 'mnli', split=split).rename_column('idx', 'ID')
-            print(f"!!! WARNING: Using GLUE MNLI as placeholder for {dataset_name}. Please confirm the MedNLI source.")
-        elif dataset_name == "scitail":
-            # SciTail has specific splits
-            dataset = load_dataset("scitail", "tsv_format", split=split)
-            dataset = dataset.rename_column('sentence1', 'premise').rename_column('sentence2', 'hypothesis')
-        else: # Covers multi_nli using the GLUE MNLI task format
-            dataset = load_dataset("glue", "mnli", split=split)
-            
+        if hub_name == "scitail":
+            ds = load_dataset("scitail", "tsv_format", split=hf_split)
+            ds = _normalize_columns(ds)
+            # SciTail labels are "entails"/"neutral" or similar; normalize via LABEL_MAPPING
+            if "label" not in ds.column_names and "gold_label" in ds.column_names:
+                ds = ds.rename_column("gold_label", "label")
+        elif hub_name in ["multi_nli", "mnli", "glue_mnli"]:
+            # Use GLUE MNLI for MultiNLI
+            ds = load_dataset("glue", "mnli", split=hf_split)
+            # Glue mnli uses integer labels {0,1,2}
+            if "label" not in ds.column_names:
+                ds = ds.rename_column("labels", "label")
+            # Normalize columns if needed
+            ds = _normalize_columns(ds)
+            # Glue columns are premise/hypothesis already; if not, rename from sentence1/2
+        elif hub_name == "mednli":
+            ds = load_dataset("mednli", split=hf_split)
+            ds = _normalize_columns(ds)
+        else:
+            # Fallback: try hub_name as provided
+            ds = load_dataset(hub_name, split=hf_split)
+            ds = _normalize_columns(ds)
     except Exception as e:
         print(f"Error loading {dataset_name}: {e}. Ensure the dataset is accessible.")
         return None
 
-    # Preprocess the dataset
-    tokenized_datasets = dataset.map(
-        preprocess_function, 
-        batched=True, 
-        remove_columns=[col for col in dataset.column_names if col not in ['input_ids', 'attention_mask', 'labels']],
-        load_from_cache_file=False
+    required = {"premise", "hypothesis", "label"}
+    if not required.issubset(set(ds.column_names)):
+        print(f"Error: normalized columns missing. Got {ds.column_names}")
+        return None
+
+    tokenized = ds.map(
+        preprocess_function,
+        batched=True,
+        remove_columns=[c for c in ds.column_names if c not in ["premise", "hypothesis", "label"]],
+        load_from_cache_file=True,
+        num_proc=1,
+        keep_in_memory=True,
+        desc=f"Tokenizing {hub_name}:{hf_split}"
     )
-    
-    # Filter out examples where the label could not be mapped (i.e., -1)
-    tokenized_datasets = tokenized_datasets.filter(lambda example: example['labels'] != -1)
-    
-    return tokenized_datasets
+    # Proactive cache cleanup to drop mmaps before exit
+    try:
+        tokenized.cleanup_cache_files()
+    except Exception:
+        pass
+    tokenized = tokenized.filter(
+        lambda x: x["labels"] != -1,
+        load_from_cache_file=True,
+        num_proc=1,
+        keep_in_memory=True
+    )
+    # Final format for Trainer
+    tokenized = tokenized.with_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+    return tokenized
 
 
 def compute_metrics(eval_pred):
@@ -88,12 +140,8 @@ def compute_metrics(eval_pred):
     Calculates Accuracy and F1-score for model evaluation.
     """
     logits, labels = eval_pred
-    predictions = logits.argmax(axis=-1)
-    
-    # Calculate accuracy
+    import numpy as np
+    predictions = np.argmax(logits, axis=-1)
     acc = accuracy_metric.compute(predictions=predictions, references=labels)
-    
-    # Calculate Macro F1 (average F1 for each class)
     f1 = f1_metric.compute(predictions=predictions, references=labels, average="macro")
-
-    return {"accuracy": acc['accuracy'], "f1_macro": f1['f1']}
+    return {"eval_accuracy": acc['accuracy'], "eval_f1_macro": f1['f1']}

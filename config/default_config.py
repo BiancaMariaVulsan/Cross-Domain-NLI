@@ -15,7 +15,11 @@ os.makedirs(RESULTS_DIR, exist_ok=True)
 MODEL_NAME = "roberta-base"
 TRAIN_DATASET = "multi_nli"
 # Using SciTail and MedNLI for diverse domain shift evaluation
-OOD_DATASETS = ["scitail", "medical_nli"] 
+# Use canonical HF names and explicit splits
+OOD_DATASETS = [
+    {"name": "scitail", "split": "test"},   # SciTail test split
+    {"name": "mednli",  "split": "test_r3"} # MedNLI r3 test split
+]
 MAX_SEQ_LENGTH = 128
 SEED = 42
 
