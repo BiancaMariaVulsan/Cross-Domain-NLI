@@ -25,6 +25,28 @@
                 "PYTHONPATH": "${workspaceFolder}",
                 "CUDA_VISIBLE_DEVICES": "0"
             }
+        },
+        {
+            "name": "Corpus Preparation",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/adaptation/dapt/prepare_dapt_corpus.py",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
+        },
+        {
+            "name": "DAPT Adaptation",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/adaptation/dapt/run_dapt.py",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
         }
     ]
 }
