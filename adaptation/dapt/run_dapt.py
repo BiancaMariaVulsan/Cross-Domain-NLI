@@ -34,6 +34,50 @@ DAPT_SAVE_PATH = os.path.join(MODEL_DIR, DAPT_MODEL_NAME)
 DAPT_NUM_EPOCHS = 1
 MLM_PROBABILITY = 0.15 # 15% of tokens are masked, standard practice
 
+def _build_trainer(model, tokenizer, train_dataset, per_device_bs: int, global_bs: int):
+    """Build a Trainer with supplied batch sizing and stable defaults."""
+    # Keep effective global batch size approximately constant via accumulation
+    grad_accum_steps = max(1, global_bs // max(1, per_device_bs))
+
+    # Prefer bf16 on Ampere+ GPUs; otherwise use fp16 if CUDA is available
+    use_cuda = torch.cuda.is_available()
+    fp16 = False
+    bf16 = False
+    if use_cuda:
+        # bf16 is more stable on newer GPUs
+        bf16 = torch.cuda.get_device_capability(0)[0] >= 8
+        fp16 = not bf16
+
+    training_args = TrainingArguments(
+        output_dir=DAPT_SAVE_PATH,
+        num_train_epochs=DAPT_NUM_EPOCHS,
+        per_device_train_batch_size=per_device_bs,
+        gradient_accumulation_steps=grad_accum_steps,
+        warmup_steps=500,
+        weight_decay=WEIGHT_DECAY,
+        logging_dir="./dapt_logs",
+        logging_steps=1000,
+        learning_rate=LEARNING_RATE / 2,
+        seed=SEED,
+        fp16=fp16,
+        bf16=bf16,
+        save_strategy="epoch",
+        dataloader_num_workers=2,  # lower workers to reduce memory footprint
+        torch_compile=False,
+        optim="adamw_torch",
+    )
+
+    return Trainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        tokenizer=tokenizer,
+        data_collator=DataCollatorForLanguageModeling(
+            tokenizer=tokenizer, mlm=True, mlm_probability=MLM_PROBABILITY
+        ),
+    )
+
+
 def run_dapt():
     """
     Performs Domain-Adaptive Pretraining (DAPT) using the Masked Language Modeling (MLM)
@@ -56,7 +100,15 @@ def run_dapt():
     print("\n--- 2. Loading Model and Data Collator ---")
     
     # Crucially, load the model using AutoModelForMaskedLM
-    model = AutoModelForMaskedLM.from_pretrained(MODEL_NAME)
+    # Use lighter dtype and safe init to reduce VRAM pressure
+    load_kwargs = {}
+    if torch.cuda.is_available():
+        # Prefer bf16 on newer GPUs if possible, else fp16 for weights
+        if torch.cuda.get_device_capability(0)[0] >= 8:
+            load_kwargs["torch_dtype"] = torch.bfloat16
+        else:
+            load_kwargs["torch_dtype"] = torch.float16
+    model = AutoModelForMaskedLM.from_pretrained(MODEL_NAME, **load_kwargs)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     
     # The Data Collator handles the random masking of tokens during training
@@ -66,36 +118,26 @@ def run_dapt():
         mlm_probability=MLM_PROBABILITY
     )
     
-    # Define Training Arguments (minimal logging, long steps)
-    training_args = TrainingArguments(
-        output_dir=DAPT_SAVE_PATH,
-        num_train_epochs=DAPT_NUM_EPOCHS,
-        per_device_train_batch_size=BATCH_SIZE,
-        warmup_steps=500,
-        weight_decay=WEIGHT_DECAY,
-        logging_dir="./dapt_logs",
-        logging_steps=1000,
-        learning_rate=LEARNING_RATE / 2, # Often slightly lower LR for pretraining
-        seed=SEED,
-        fp16=torch.cuda.is_available(),
-        save_strategy="epoch",
-        dataloader_num_workers=4,
-        # IMPORTANT: No evaluation or save strategy needed for this intermediate step
-    )
-
-    # 3. Initialize and Run Trainer
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset,
-        tokenizer=tokenizer,
-        data_collator=data_collator,
-    )
+    # 3. Initialize Trainer with adaptive batch sizing
+    # Start with configured global batch size; reduce per-device if OOM
+    global_bs = max(1, BATCH_SIZE)
+    per_device_bs = min(global_bs, 8)  # cautious default
+    trainer = _build_trainer(model, tokenizer, train_dataset, per_device_bs, global_bs)
     
     print(f"\n--- 3. Starting DAPT (MLM) on {DAPT_CORPUS_NAME} for {DAPT_NUM_EPOCHS} epoch(s) ---")
     
-    # Start DAPT
-    trainer.train()
+    # Start DAPT with automatic OOM fallback
+    try:
+        trainer.train()
+    except RuntimeError as e:
+        if "out of memory" in str(e).lower() and per_device_bs > 1:
+            torch.cuda.empty_cache()
+            per_device_bs = max(1, per_device_bs // 2)
+            print(f"OOM encountered. Retrying with per_device_train_batch_size={per_device_bs}.")
+            trainer = _build_trainer(model, tokenizer, train_dataset, per_device_bs, global_bs)
+            trainer.train()
+        else:
+            raise
     
     # Save the DAPT-adapted model
     trainer.save_model(DAPT_SAVE_PATH)
