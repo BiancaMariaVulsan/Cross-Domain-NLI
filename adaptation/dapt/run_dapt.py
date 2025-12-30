@@ -34,6 +34,10 @@ DAPT_SAVE_PATH = os.path.join(MODEL_DIR, DAPT_MODEL_NAME)
 DAPT_NUM_EPOCHS = 1
 MLM_PROBABILITY = 0.15 # 15% of tokens are masked, standard practice
 
+# Checkpointing configuration: save frequently to avoid long runs without checkpoints
+CHECKPOINT_SAVE_STEPS = 1000  # save every N training steps
+CHECKPOINT_TOTAL_LIMIT = 10   # keep last N checkpoints to limit disk usage
+
 def _build_trainer(model, tokenizer, train_dataset, per_device_bs: int, global_bs: int):
     """Build a Trainer with supplied batch sizing and stable defaults."""
     # Keep effective global batch size approximately constant via accumulation
@@ -61,7 +65,9 @@ def _build_trainer(model, tokenizer, train_dataset, per_device_bs: int, global_b
         seed=SEED,
         fp16=fp16,
         bf16=bf16,
-        save_strategy="epoch",
+        save_strategy="steps",
+        save_steps=CHECKPOINT_SAVE_STEPS,
+        save_total_limit=CHECKPOINT_TOTAL_LIMIT,
         dataloader_num_workers=2,  # lower workers to reduce memory footprint
         torch_compile=False,
         optim="adamw_torch",
@@ -110,6 +116,19 @@ def run_dapt():
             load_kwargs["torch_dtype"] = torch.float16
     model = AutoModelForMaskedLM.from_pretrained(MODEL_NAME, **load_kwargs)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+    # Ensure dedicated GPU is used if available and inform the user
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        model.to(device)
+        try:
+            dev_name = torch.cuda.get_device_name(0)
+            total_mem_gib = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+            print(f"Using dedicated GPU: {dev_name} ({total_mem_gib:.1f} GiB)")
+        except Exception:
+            print("Using dedicated GPU (CUDA device detected)")
+    else:
+        print("CUDA not available. Training will run on CPU.")
     
     # The Data Collator handles the random masking of tokens during training
     data_collator = DataCollatorForLanguageModeling(
