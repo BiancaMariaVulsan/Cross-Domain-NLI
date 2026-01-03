@@ -16,6 +16,21 @@
             }
         },
         {
+            "name": "Fine-Tunning (DAPT)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/train_baseline.py",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "--base-model-dir", "models/roberta-base_dapt_dapt_corpus",
+                "--output-dir", "models/roberta-base_dapt_dapt_corpus_baseline_multi_nli"
+            ],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
+        },
+        {
             "name": "Evaluation OOD",
             "type": "debugpy",
             "request": "launch",
@@ -38,7 +53,7 @@
             "program": "${workspaceFolder}/src/evaluate_ood.py",
             "cwd": "${workspaceFolder}",
             "args": [
-                "--model-dir", "models/roberta-base_dapt_dapt_corpus",
+                "--model-dir", "models/roberta-base_dapt_dapt_corpus_baseline_multi_nli",
                 "--label", "dapt",
                 "--results-file", "results/dapt_results.csv"
             ],

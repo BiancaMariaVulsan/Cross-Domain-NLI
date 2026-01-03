@@ -1,0 +1,4 @@
+Model,Trained On,Evaluated On,Accuracy,F1_Macro,Generalization_Gap
+roberta-base dapt,multi_nli,multi_nli_matched,0.875394803871625,0.8748830037314196,0.0
+roberta-base dapt,multi_nli,multi_nli_mismatched,0.8743897477624084,0.8739205739511405,0.00100505610921664
+roberta-base dapt,multi_nli,scitail,0.7041392285983067,0.49789449474577685,0.17125557527331836

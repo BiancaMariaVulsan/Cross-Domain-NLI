@@ -1,7 +1,8 @@
 import os
 import sys
 import torch
-from transformers import AutoModelForSequenceClassification, TrainingArguments, Trainer, AutoTokenizer, DataCollatorWithPadding
+from transformers import AutoModelForSequenceClassification, TrainingArguments, Trainer, AutoTokenizer, DataCollatorWithPadding, AutoConfig
+import argparse
 
 # Ensure project root is on PYTHONPATH for module imports
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -21,7 +22,7 @@ from config.default_config import (
 from data.prep_data import load_and_preprocess_dataset, compute_metrics
 
 
-def train_baseline_model():
+def train_baseline_model(base_model_dir: str | None = None, output_dir_override: str | None = None):
     """
     Fine-tunes the RoBERTa model on the MultiNLI training data.
     """
@@ -42,10 +43,15 @@ def train_baseline_model():
     
     
     print("\n--- 2. Loading Model ---")
+    # Allow training from either HF base model or a local DAPT-adapted checkpoint
+    base_path = base_model_dir or MODEL_NAME
+    # Ensure 3-class classification head; allow size mismatch (e.g., when loading from MLM)
+    config = AutoConfig.from_pretrained(base_path)
+    config.num_labels = 3
     model, loading_info = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_NAME, num_labels=3, output_loading_info=True
+        base_path, config=config, ignore_mismatched_sizes=True, output_loading_info=True
     )
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    tokenizer = AutoTokenizer.from_pretrained(base_path)
 
     # Prefer dedicated GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -91,7 +97,15 @@ def train_baseline_model():
         print(f"Warning: unexpected classifier params: {unexpected}")
 
     # Define the output directory for checkpoints
-    output_dir = os.path.join(MODEL_DIR, f"{MODEL_NAME}_baseline_{TRAIN_DATASET}")
+    if output_dir_override:
+        output_dir = output_dir_override
+    else:
+        # If training from a local path (e.g., DAPT), include its basename in the run name
+        if os.path.isabs(base_path) or os.path.sep in base_path or os.path.exists(base_path):
+            base_name = os.path.basename(os.path.normpath(base_path))
+        else:
+            base_name = MODEL_NAME
+        output_dir = os.path.join(MODEL_DIR, f"{base_name}_baseline_{TRAIN_DATASET}")
 
     # Define Training Arguments with version-aware kwargs
     _ta_kwargs = {
@@ -161,5 +175,13 @@ def train_baseline_model():
     print(in_domain_metrics)
 
 
+def _parse_args():
+    parser = argparse.ArgumentParser(description="Fine-tune a classification head for NLI.")
+    parser.add_argument("--base-model-dir", type=str, default=None, help="Base model to start from (HF id or local path). Use your DAPT checkpoint to fine-tune from DAPT.")
+    parser.add_argument("--output-dir", type=str, default=None, help="Optional explicit output directory for the fine-tuned model.")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    train_baseline_model()
+    args = _parse_args()
+    train_baseline_model(base_model_dir=args.base_model_dir, output_dir_override=args.output_dir)
