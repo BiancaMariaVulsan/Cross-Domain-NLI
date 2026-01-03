@@ -21,6 +21,27 @@
             "request": "launch",
             "program": "${workspaceFolder}/src/evaluate_ood.py",
             "cwd": "${workspaceFolder}",
+            "args": [
+                "--model-dir", "models\\roberta-base_baseline_multi_nli",
+                "--label", "baseline",
+                "--results-file", "results/baseline_results_1.csv"
+            ],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
+        },
+        {
+            "name": "Evaluation OOD (DAPT)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/evaluate_ood.py",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "--model-dir", "models/roberta-base_dapt_dapt_corpus",
+                "--label", "dapt",
+                "--results-file", "results/dapt_results.csv"
+            ],
             "env": {
                 "PYTHONPATH": "${workspaceFolder}",
                 "CUDA_VISIBLE_DEVICES": "0"

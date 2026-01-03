@@ -1,36 +1,54 @@
 import os
+import argparse
 import pandas as pd
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer, DataCollatorWithPadding
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer, DataCollatorWithPadding, AutoConfig
 from config.default_config import (
-    MODEL_NAME, 
-    TRAIN_DATASET, 
-    OOD_DATASETS, 
-    BATCH_SIZE, 
-    MODEL_DIR, 
-    RESULTS_DIR
+    MODEL_NAME,
+    TRAIN_DATASET,
+    OOD_DATASETS,
+    BATCH_SIZE,
+    MODEL_DIR,
+    RESULTS_DIR,
 )
 from data.prep_data import load_and_preprocess_dataset, compute_metrics
 
 
-def evaluate_cross_domain():
+def evaluate_cross_domain(model_dir: str = None, label: str = "Baseline", results_file: str = None):
     """
-    Loads the trained baseline model and evaluates its performance
-    on the specified Out-of-Domain (OOD) datasets.
-    """
-    
-    # 1. Define Model Path
-    baseline_model_path = os.path.join(MODEL_DIR, f"{MODEL_NAME}_baseline_{TRAIN_DATASET}")
+    Evaluates a trained sequence classification model on in-domain and OOD datasets.
 
-    if not os.path.exists(baseline_model_path):
-        print(f"ERROR: Baseline model not found at {baseline_model_path}")
-        print("Please run scripts/01_train_baseline.py successfully first.")
+    Parameters
+    - model_dir: Path to the model directory (containing config.json, model weights, tokenizer).
+                 If None, defaults to the baseline fine-tuned model path.
+    - label:     A short label for the model (e.g., "Baseline", "DAPT").
+    - results_file: Output CSV path. If None, defaults based on label.
+    """
+
+    # 1. Resolve Model Path
+    default_baseline_path = os.path.join(MODEL_DIR, f"{MODEL_NAME}_baseline_{TRAIN_DATASET}")
+    model_path = model_dir or default_baseline_path
+
+    if not os.path.exists(model_path):
+        print(f"ERROR: Model not found at {model_path}")
+        if model_dir is None:
+            print(f"Please train the baseline model first at: {default_baseline_path}")
         return
 
-    print(f"--- 1. Loading Trained Baseline Model from: {baseline_model_path} ---")
-    
-    # Load model and tokenizer from the same checkpoint
-    model = AutoModelForSequenceClassification.from_pretrained(baseline_model_path)
-    tokenizer = AutoTokenizer.from_pretrained(baseline_model_path)
+    print(f"--- 1. Loading Trained Model from: {model_path} ---")
+
+    # Load tokenizer from the checkpoint (falls back to base if needed)
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+
+    # Ensure classification head has 3 labels even if starting from a DAPT (MLM) checkpoint
+    config = AutoConfig.from_pretrained(model_path)
+    if not hasattr(config, "num_labels") or config.num_labels != 3:
+        config.num_labels = 3
+    # Allow initializing a fresh head when loading from non-classification checkpoints
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_path,
+        config=config,
+        ignore_mismatched_sizes=True,
+    )
 
     # 2. Setup Trainer for Evaluation
     from transformers import TrainingArguments
@@ -83,7 +101,7 @@ def evaluate_cross_domain():
         
         # Record results
         results.append({
-            "Model": f"{MODEL_NAME} Baseline",
+            "Model": f"{MODEL_NAME} {label}",
             "Trained On": TRAIN_DATASET,
             "Evaluated On": name,
             "Accuracy": metrics.get("eval_accuracy"),
@@ -102,7 +120,15 @@ def evaluate_cross_domain():
     else:
         df_results['Generalization_Gap'] = None
 
-    results_file = os.path.join(RESULTS_DIR, "baseline_results.csv")
+    if results_file is None:
+        # Default filename driven by label
+        fname = f"{label.lower()}_results.csv".replace(" ", "_")
+        results_file = os.path.join(RESULTS_DIR, fname)
+    else:
+        # If a bare name is provided, save under RESULTS_DIR and ensure .csv
+        if not os.path.isabs(results_file) and os.path.dirname(results_file) == "":
+            fname = results_file if results_file.lower().endswith(".csv") else f"{results_file}.csv"
+            results_file = os.path.join(RESULTS_DIR, fname)
     df_results.to_csv(results_file, index=False)
 
     print("\n" + "="*50)
@@ -112,5 +138,14 @@ def evaluate_cross_domain():
     print(df_results)
 
 
+def _parse_args():
+    parser = argparse.ArgumentParser(description="Evaluate in-domain and OOD datasets for a trained model.")
+    parser.add_argument("--model-dir", type=str, default=None, help="Path to trained classification model directory.")
+    parser.add_argument("--label", type=str, default="Baseline", help="Label for the model (e.g., Baseline, DAPT).")
+    parser.add_argument("--results-file", type=str, default=None, help="Optional output CSV path.")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    evaluate_cross_domain()
+    args = _parse_args()
+    evaluate_cross_domain(model_dir=args.model_dir, label=args.label, results_file=args.results_file)
