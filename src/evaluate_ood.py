@@ -12,6 +12,7 @@ from config.default_config import (
     RESULTS_DIR,
 )
 from data.prep_data import load_and_preprocess_dataset, compute_metrics
+from transformers import TrainingArguments
 
 
 def evaluate_cross_domain(model_dir: str = None, label: str = "Baseline", results_file: str = None, adapter_dir: Optional[str] = None):
@@ -29,23 +30,11 @@ def evaluate_cross_domain(model_dir: str = None, label: str = "Baseline", result
     default_baseline_path = os.path.join(MODEL_DIR, f"{MODEL_NAME}_baseline_{TRAIN_DATASET}")
     model_path = model_dir or default_baseline_path
 
-    if not os.path.exists(model_path):
-        # Allow Hugging Face model identifiers (e.g., "roberta-base") when a model_dir is provided.
-        if model_dir is None:
-            print(f"ERROR: Model not found at {model_path}")
-            print(f"Please train the baseline model first at: {default_baseline_path}")
-            return
-        else:
-            print(f"Note: '{model_path}' not found locally; treating it as a Hugging Face model id.")
-
     print(f"--- 1. Loading Trained Model from: {model_path} ---")
 
-    # Load tokenizer from the checkpoint (falls back to base if needed)
-    # Prefer tokenizer from adapter_dir if provided (fallback to base)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
-
-    # Ensure classification head has 3 labels even if starting from a DAPT (MLM) checkpoint
     config = AutoConfig.from_pretrained(model_path)
+    # Ensure classification head has 3 labels even if starting from a DAPT checkpoint
     if not hasattr(config, "num_labels") or config.num_labels != 3:
         config.num_labels = 3
     # Allow initializing a fresh head when loading from non-classification checkpoints
@@ -65,8 +54,6 @@ def evaluate_cross_domain(model_dir: str = None, label: str = "Baseline", result
             print(f"Warning: Failed to load LoRA adapter at {adapter_dir}: {e}")
 
     # 2. Setup Trainer for Evaluation
-    from transformers import TrainingArguments
-    # Conservative, version-safe args
     eval_kwargs = {
         "output_dir": "./tmp_eval",
         "per_device_eval_batch_size": BATCH_SIZE,
@@ -94,7 +81,7 @@ def evaluate_cross_domain(model_dir: str = None, label: str = "Baseline", result
         f"{TRAIN_DATASET}_mismatched": load_and_preprocess_dataset(TRAIN_DATASET, split="validation_mismatched"),
     }
     
-    # Add OOD datasets (support dict specs from config)
+    # Add OOD datasets
     for spec in OOD_DATASETS:
         if isinstance(spec, dict):
             ds = load_and_preprocess_dataset(spec["name"], split=spec.get("split", "test"))
@@ -109,11 +96,8 @@ def evaluate_cross_domain(model_dir: str = None, label: str = "Baseline", result
             continue
             
         print(f"\n--- Evaluating on {name} (Size: {len(dataset)}) ---")
-        
-        # Run evaluation
         metrics = trainer.evaluate(eval_dataset=dataset)
         
-        # Record results
         results.append({
             "Model": f"{MODEL_NAME} {label}",
             "Trained On": TRAIN_DATASET,

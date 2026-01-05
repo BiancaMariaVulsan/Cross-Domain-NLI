@@ -40,7 +40,6 @@ def preprocess_function(examples):
         examples["hypothesis"],
         truncation=True,
         max_length=MAX_SEQ_LENGTH,
-        # Padding deferred to DataCollatorWithPadding
     )
 
     # Convert original labels (string or integer) to standardized integer IDs
@@ -70,10 +69,9 @@ def load_and_preprocess_dataset(dataset_name, split="train"):
     if isinstance(dataset_name, dict):
         hub_name = dataset_name.get("name", dataset_name)
         hf_split = dataset_name.get("split", split)
-    # Canonicalize mednli naming
+
     if isinstance(hub_name, str) and hub_name.lower() in ["medical_nli", "mednli"]:
         hub_name = "mednli"
-        # Default to r3 if generic split provided
         if split == "train": hf_split = "train_r3"
         elif split in ["validation", "dev"]: hf_split = "dev_r3"
         elif split == "test": hf_split = "test_r3"
@@ -91,9 +89,8 @@ def load_and_preprocess_dataset(dataset_name, split="train"):
             # Glue mnli uses integer labels {0,1,2}
             if "label" not in ds.column_names:
                 ds = ds.rename_column("labels", "label")
-            # Normalize columns if needed
+            # Normalize columns
             ds = _normalize_columns(ds)
-            # Glue columns are premise/hypothesis already; if not, rename from sentence1/2
         elif hub_name == "mednli":
             ds = load_dataset("mednli", split=hf_split)
             ds = _normalize_columns(ds)
@@ -130,7 +127,6 @@ def load_and_preprocess_dataset(dataset_name, split="train"):
         num_proc=1,
         keep_in_memory=True
     )
-    # Final format for Trainer
     tokenized = tokenized.with_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
     return tokenized
 

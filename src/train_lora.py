@@ -3,12 +3,6 @@ import sys
 import torch
 import argparse
 from transformers import AutoModelForSequenceClassification, TrainingArguments, Trainer, AutoTokenizer, DataCollatorWithPadding, AutoConfig
-
-# Ensure project root is on PYTHONPATH for module imports
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
 from config.default_config import (
     MODEL_NAME,
     TRAIN_DATASET,
@@ -20,9 +14,11 @@ from config.default_config import (
     MODEL_DIR,
 )
 from data.prep_data import load_and_preprocess_dataset, compute_metrics
-
 from peft import LoraConfig, get_peft_model, TaskType
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 def train_lora_model(
     base_model_dir: str | None = None,
@@ -66,7 +62,7 @@ def train_lora_model(
     model.to(device)
     print(f"Using device: {device}")
 
-    # 2.a Configure LoRA
+    # Configure LoRA
     if target_modules is None:
         # Recommended defaults for BERT/RoBERTa attention projections
         target_modules = ["query", "value"]
@@ -90,8 +86,7 @@ def train_lora_model(
     pct = 100.0 * trainable / float(total)
     print(f"Trainable params with LoRA: {trainable:,} / {total:,} ({pct:.2f}%)")
 
-    # 3. TrainingArguments (version-safe)
-    # Resolve output directory
+    # Set Training Arguments
     _default_out = os.path.join(MODEL_DIR, f"{os.path.basename(os.path.normpath(base_path))}_lora_{TRAIN_DATASET}")
     _resolved_out = output_dir_override or (os.path.join(MODEL_DIR, output_subdir) if output_subdir else _default_out)
     _ta_kwargs = {
@@ -140,15 +135,15 @@ def train_lora_model(
     print("\n--- 3. Starting LoRA Fine-Tuning ---")
     train_result = trainer.train()
 
-    # Save adapter weights (PeftModel.save_pretrained via Trainer.save_model)
+    # Save adapter weights
     output_dir = training_args.output_dir
     trainer.save_model(output_dir)
     # Save tokenizer alongside for convenience
     tokenizer.save_pretrained(output_dir)
     print(f"\nTraining complete. LoRA adapter saved to: {output_dir}")
 
-    # Optional: merge adapters into base and save a full model for standalone inference
     if merge_and_save:
+        # Merge adapters into base and save a full model for standalone inference
         print("Merging LoRA adapters into base weights and saving full model...")
         merged = model.merge_and_unload()
         merged.save_pretrained(os.path.join(output_dir, "merged"))

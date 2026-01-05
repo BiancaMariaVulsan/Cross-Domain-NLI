@@ -3,12 +3,7 @@ import sys
 import torch
 from transformers import AutoModelForSequenceClassification, TrainingArguments, Trainer, AutoTokenizer, DataCollatorWithPadding, AutoConfig
 import argparse
-
-# Ensure project root is on PYTHONPATH for module imports
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
-
+import inspect
 from config.default_config import (
     MODEL_NAME, 
     TRAIN_DATASET, 
@@ -21,16 +16,18 @@ from config.default_config import (
 )
 from data.prep_data import load_and_preprocess_dataset, compute_metrics
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 
 def train_baseline_model(base_model_dir: str | None = None, output_dir_override: str | None = None):
     """
     Fine-tunes the RoBERTa model on the MultiNLI training data.
     """
     print(f"--- 1. Loading and Preprocessing {TRAIN_DATASET} Data ---")
-    
     # Load training data (using 'train' split)
     train_dataset = load_and_preprocess_dataset(TRAIN_DATASET, split="train")
-    
     # Load evaluation data (using 'validation_matched' split for general comparison)
     eval_dataset = load_and_preprocess_dataset(TRAIN_DATASET, split="validation_matched")
 
@@ -43,9 +40,9 @@ def train_baseline_model(base_model_dir: str | None = None, output_dir_override:
     
     
     print("\n--- 2. Loading Model ---")
-    # Allow training from either HF base model or a local DAPT-adapted checkpoint
+    # Allow training from either base model or a local DAPT-adapted checkpoint
     base_path = base_model_dir or MODEL_NAME
-    # Ensure 3-class classification head; allow size mismatch (e.g., when loading from MLM)
+    # Ensure 3-class classification head
     config = AutoConfig.from_pretrained(base_path)
     config.num_labels = 3
     model, loading_info = AutoModelForSequenceClassification.from_pretrained(
@@ -71,7 +68,7 @@ def train_baseline_model(base_model_dir: str | None = None, output_dir_override:
     emb_shape = tuple(model.base_model.embeddings.word_embeddings.weight.shape)
     print(f"Embedding weight shape: {emb_shape}")
 
-    # List classifier params (expected to be newly initialized)
+    # List classifier params (newly initialized)
     head_params = [n for n, _ in model.named_parameters() if n.startswith(("classifier.", "score."))]
     print(f"Classification head params: {head_params}")
 
@@ -91,23 +88,22 @@ def train_baseline_model(base_model_dir: str | None = None, output_dir_override:
     expected_new = {"classifier.dense.weight", "classifier.dense.bias", "classifier.out_proj.weight", "classifier.out_proj.bias"}
     present_new = set(p for p in head_params)
     assert present_new, "No classifier head params found."
-    # If you want to be strict, ensure no other unexpected head prefixes appear:
+    # Ensure no other unexpected head prefixes appear
     unexpected = [n for n in head_params if n not in expected_new]
     if unexpected:
         print(f"Warning: unexpected classifier params: {unexpected}")
 
-    # Define the output directory for checkpoints
     if output_dir_override:
         output_dir = output_dir_override
     else:
-        # If training from a local path (e.g., DAPT), include its basename in the run name
+        # If training from a local path, include its basename in the run name
         if os.path.isabs(base_path) or os.path.sep in base_path or os.path.exists(base_path):
             base_name = os.path.basename(os.path.normpath(base_path))
         else:
             base_name = MODEL_NAME
         output_dir = os.path.join(MODEL_DIR, f"{base_name}_baseline_{TRAIN_DATASET}")
 
-    # Define Training Arguments with version-aware kwargs
+    # Training Arguments
     _ta_kwargs = {
         "output_dir": output_dir,
         "num_train_epochs": NUM_EPOCHS,
@@ -120,12 +116,10 @@ def train_baseline_model(base_model_dir: str | None = None, output_dir_override:
         "learning_rate": LEARNING_RATE,
         "seed": SEED,
         "fp16": torch.cuda.is_available(),
-        # Speed-ups on GPU; on CPU they are safe but not critical
         "dataloader_num_workers": 4,
         "pin_memory": torch.cuda.is_available(),
     }
 
-    # Try to add strategy flags, then filter by actual __init__ signature to avoid unsupported args
     _ta_kwargs.update({
         "evaluation_strategy": "epoch",
         "save_strategy": "epoch",
@@ -133,10 +127,8 @@ def train_baseline_model(base_model_dir: str | None = None, output_dir_override:
         "metric_for_best_model": "accuracy",
     })
 
-    import inspect
     _allowed = set(inspect.signature(TrainingArguments.__init__).parameters.keys())
-    # remove 'self' from parameters
-    _allowed.discard("self")
+    _allowed.discard("self") # remove 'self' from parameters
     # If evaluation_strategy isn't supported, drop related flags to avoid inconsistency errors
     if "evaluation_strategy" not in _allowed:
         for key in ("evaluation_strategy", "save_strategy", "load_best_model_at_end", "metric_for_best_model"):
@@ -145,11 +137,9 @@ def train_baseline_model(base_model_dir: str | None = None, output_dir_override:
 
     training_args = TrainingArguments(**_filtered)
 
-    # Prepare tokenizer and data collator for dynamic padding
-    _tokenizer = tokenizer  # reuse loaded tokenizer
+    _tokenizer = tokenizer  # reuse loaded tokenizer for dynamic padding
     _data_collator = DataCollatorWithPadding(tokenizer=_tokenizer)
 
-    # Initialize the Trainer
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -161,11 +151,7 @@ def train_baseline_model(base_model_dir: str | None = None, output_dir_override:
     )
     
     print("\n--- 3. Starting Fine-Tuning ---")
-    
-    # Start training
-    train_result = trainer.train()
-    
-    # Save the best model
+    trainer.train()
     trainer.save_model(output_dir)
     print(f"\nTraining complete. Best model saved to: {output_dir}")
 

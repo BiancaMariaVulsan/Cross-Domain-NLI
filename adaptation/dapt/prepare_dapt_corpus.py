@@ -2,16 +2,14 @@ import os
 import sys
 from datasets import load_dataset
 from transformers import AutoTokenizer
+from config.default_config import MODEL_NAME, MAX_SEQ_LENGTH, BASE_DIR
 
-# Ensure project root is on PYTHONPATH for module imports
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from config.default_config import MODEL_NAME, MAX_SEQ_LENGTH, BASE_DIR
 
-# --- Configuration for DAPT ---
-# Prefer modern Hub datasets
+# Configuration for DAPT
 PRIMARY_DATASET = ("the_pile", "arXiv", "text")  # (hub_name, config, text_field)
 FALLBACK_DATASET = ("cc_news", None, "text")     # widely available news dataset
 CORPUS_SIZE_LIMIT = 200000
