@@ -34,10 +34,12 @@ WEIGHT_DECAY = 0.01
 # Most datasets use these conventions or can be mapped to them.
 LABEL_MAPPING = {
     "entailment": 0,
+    "entails": 0,  # SciTail often uses 'entails'
     "neutral": 1,
     "contradiction": 2,
     # Additional mappings for specific dataset quirks if necessary
     "not_entailment": 2,  # Used in some simplified NLI tasks
+    "not_entails": 2,     # SciTail variant if present
     "-1": 1  # MultiNLI sometimes uses '-1' for the 'neutral' label
 }
 

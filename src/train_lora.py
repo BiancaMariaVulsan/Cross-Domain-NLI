@@ -114,6 +114,8 @@ def train_lora_model(
         "save_strategy": "epoch",
         "load_best_model_at_end": True,
         "metric_for_best_model": "accuracy",
+        "save_total_limit": 10,
+        "greater_is_better": True,
     })
     import inspect
     _allowed = set(inspect.signature(TrainingArguments.__init__).parameters.keys())

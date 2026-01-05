@@ -63,6 +63,127 @@
             }
         },
         {
+            "name": "Fine-Tuning (LoRA) Base",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/train_lora.py",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "--base-model-dir", "roberta-base",
+                "--r", "16",
+                "--lora-alpha", "32",
+                "--lora-dropout", "0.1",
+                "--merge-and-save",
+                "--output-subdir", "roberta-base_baseline_multi_nli_lora"
+
+            ],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
+        },
+        {
+            "name": "Fine-Tuning (LoRA) from DAPT",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/train_lora.py",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "--base-model-dir", "models/roberta-base_dapt_dapt_corpus",
+                "--r", "16",
+                "--lora-alpha", "32",
+                "--lora-dropout", "0.1",
+                "--output-subdir", "roberta-base_dapt_multi_nli_lora"
+
+            ],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
+        },
+        {
+            "name": "Evaluation OOD (LoRA adapter)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/evaluate_ood.py",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "--adapter-dir", "models/roberta-base_lora_multi_nli/checkpoint-73632",
+                "--label", "lora",
+                "--results-file", "results/lora_results.csv"
+            ],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
+        },
+        {
+            "name": "Fine-Tuning (LoRA custom output)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/train_lora.py",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "--output-subdir", "my_lora_run",
+                "--r", "16",
+                "--lora-alpha", "32",
+                "--lora-dropout", "0.1"
+            ],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
+        },
+        {
+            "name": "Evaluation OOD DAPT (LoRA merged)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/evaluate_ood.py",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "--model-dir", "models/roberta-base_lora_multi_nli/merged",
+                "--label", "lora-merged",
+                "--results-file", "results/lora_merged_results.csv"
+            ],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
+        },
+        {
+            "name": "Evaluation OOD (LoRA merged)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/evaluate_ood.py",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "--model-dir", "models/roberta-base_dapt_multi_nli_lora/merged",
+                "--label", "lora-merged",
+                "--results-file", "results/lora_dapt_merged_results.csv"
+            ],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
+        },
+        {
+            "name": "Evaluation OOD DAPT (LoRA adapter)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/src/evaluate_ood.py",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "--model-dir", "models/roberta-base_dapt_dapt_corpus/checkpoint-51079",
+                "--adapter-dir", "models/roberta-base_dapt_multi_nli_lora/checkpoint-73632",
+                "--label", "lora",
+                "--results-file", "results/lora_dapt_results.csv"
+            ],
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "CUDA_VISIBLE_DEVICES": "0"
+            }
+        },
+        {
             "name": "Corpus Preparation",
             "type": "debugpy",
             "request": "launch",

@@ -2,6 +2,7 @@ import os
 import argparse
 import pandas as pd
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, Trainer, DataCollatorWithPadding, AutoConfig
+from typing import Optional
 from config.default_config import (
     MODEL_NAME,
     TRAIN_DATASET,
@@ -13,7 +14,7 @@ from config.default_config import (
 from data.prep_data import load_and_preprocess_dataset, compute_metrics
 
 
-def evaluate_cross_domain(model_dir: str = None, label: str = "Baseline", results_file: str = None):
+def evaluate_cross_domain(model_dir: str = None, label: str = "Baseline", results_file: str = None, adapter_dir: Optional[str] = None):
     """
     Evaluates a trained sequence classification model on in-domain and OOD datasets.
 
@@ -29,14 +30,18 @@ def evaluate_cross_domain(model_dir: str = None, label: str = "Baseline", result
     model_path = model_dir or default_baseline_path
 
     if not os.path.exists(model_path):
-        print(f"ERROR: Model not found at {model_path}")
+        # Allow Hugging Face model identifiers (e.g., "roberta-base") when a model_dir is provided.
         if model_dir is None:
+            print(f"ERROR: Model not found at {model_path}")
             print(f"Please train the baseline model first at: {default_baseline_path}")
-        return
+            return
+        else:
+            print(f"Note: '{model_path}' not found locally; treating it as a Hugging Face model id.")
 
     print(f"--- 1. Loading Trained Model from: {model_path} ---")
 
     # Load tokenizer from the checkpoint (falls back to base if needed)
+    # Prefer tokenizer from adapter_dir if provided (fallback to base)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
 
     # Ensure classification head has 3 labels even if starting from a DAPT (MLM) checkpoint
@@ -49,6 +54,15 @@ def evaluate_cross_domain(model_dir: str = None, label: str = "Baseline", result
         config=config,
         ignore_mismatched_sizes=True,
     )
+
+    # If a LoRA adapter is provided, attach it for inference
+    if adapter_dir:
+        try:
+            from peft import PeftModel
+            print(f"Attaching LoRA adapter from: {adapter_dir}")
+            model = PeftModel.from_pretrained(model, adapter_dir)
+        except Exception as e:
+            print(f"Warning: Failed to load LoRA adapter at {adapter_dir}: {e}")
 
     # 2. Setup Trainer for Evaluation
     from transformers import TrainingArguments
@@ -143,9 +157,10 @@ def _parse_args():
     parser.add_argument("--model-dir", type=str, default=None, help="Path to trained classification model directory.")
     parser.add_argument("--label", type=str, default="Baseline", help="Label for the model (e.g., Baseline, DAPT).")
     parser.add_argument("--results-file", type=str, default=None, help="Optional output CSV path.")
+    parser.add_argument("--adapter-dir", type=str, default=None, help="Optional LoRA adapter directory for inference.")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
-    evaluate_cross_domain(model_dir=args.model_dir, label=args.label, results_file=args.results_file)
+    evaluate_cross_domain(model_dir=args.model_dir, label=args.label, results_file=args.results_file, adapter_dir=args.adapter_dir)
