@@ -19,7 +19,7 @@ pip install peft
 pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 ```
 
-# Run the fine-tunning ((or use launch.json))
+# Run the fine-tunning (or use launch.json)
 ```
 cd src
 python .\train_baseline.py
