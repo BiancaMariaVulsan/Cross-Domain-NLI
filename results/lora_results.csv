@@ -1,0 +1,4 @@
+Model,Trained On,Evaluated On,Accuracy,F1_Macro,Generalization_Gap
+roberta-base lora,multi_nli,multi_nli_matched,0.8742740703005604,0.8737835061878997,0.0
+roberta-base lora,multi_nli,multi_nli_mismatched,0.8748982912937348,0.8744294577669695,-0.0006242209931743847
+roberta-base lora,multi_nli,scitail,0.7013170272812794,0.4985438205649047,0.17295704301928094
