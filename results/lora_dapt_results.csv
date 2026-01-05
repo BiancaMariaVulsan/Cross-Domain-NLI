@@ -1,5 +1,5 @@
 Model,Trained On,Evaluated On,Accuracy,F1_Macro,Generalization_Gap
-roberta-base lora,multi_nli,multi_nli_matched,0.8390219052470708,0.8378166093881724,0.0
-roberta-base lora,multi_nli,multi_nli_mismatched,0.8453010577705452,0.8440403551696511,-0.0062791525234744405
-roberta-base lora,multi_nli,scitail,0.6853245531514581,0.48327562535212804,0.15369735209561264
-roberta-base lora,multi_nli,snli,0.8117874592833876,0.8094128495028631,0.027234445963683185
+roberta-base dapt_lora,multi_nli,multi_nli_matched,0.8390219052470708,0.8378166093881724,0.0
+roberta-base dapt_lora,multi_nli,multi_nli_mismatched,0.8453010577705452,0.8440403551696511,-0.0062791525234744405
+roberta-base dapt_lora,multi_nli,scitail,0.6853245531514581,0.48327562535212804,0.15369735209561264
+roberta-base dapt_lora,multi_nli,snli,0.8117874592833876,0.8094128495028631,0.027234445963683185
