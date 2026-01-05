@@ -15,7 +15,7 @@ TRAIN_DATASET = "multi_nli"
 # Use canonical HF names and explicit splits
 OOD_DATASETS = [
     {"name": "scitail", "split": "test"},   # SciTail test split
-    {"name": "mednli",  "split": "test_r3"} # MedNLI r3 test split
+    {"name": "snli",  "split": "test"}    # snli test split
 ]
 MAX_SEQ_LENGTH = 128
 SEED = 42

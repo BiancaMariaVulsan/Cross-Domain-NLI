@@ -70,11 +70,11 @@ def load_and_preprocess_dataset(dataset_name, split="train"):
         hub_name = dataset_name.get("name", dataset_name)
         hf_split = dataset_name.get("split", split)
 
-    if isinstance(hub_name, str) and hub_name.lower() in ["medical_nli", "mednli"]:
-        hub_name = "mednli"
-        if split == "train": hf_split = "train_r3"
-        elif split in ["validation", "dev"]: hf_split = "dev_r3"
-        elif split == "test": hf_split = "test_r3"
+    if isinstance(hub_name, str) and hub_name.lower() in ["medical_nli", "snli"]:
+        hub_name = "snli"
+        if split == "train": hf_split = "train"
+        elif split in ["validation", "dev"]: hf_split = "validation"
+        elif split == "test": hf_split = "test"
 
     try:
         if hub_name == "scitail":
@@ -91,8 +91,8 @@ def load_and_preprocess_dataset(dataset_name, split="train"):
                 ds = ds.rename_column("labels", "label")
             # Normalize columns
             ds = _normalize_columns(ds)
-        elif hub_name == "mednli":
-            ds = load_dataset("mednli", split=hf_split)
+        elif hub_name == "snli":
+            ds = load_dataset("snli", split=hf_split)
             ds = _normalize_columns(ds)
         else:
             # Fallback: try hub_name as provided
